@@ -1,0 +1,171 @@
+name: Create release
+on:
+  workflow_dispatch:
+  push:
+    tags:
+    - '*'
+
+jobs:
+  release_job:
+    name: Create release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      release_version: ${{ env.RELEASE_VERSION }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create Release info
+        # e.g. refs/tags/1.0
+        run: |
+          echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
+      - uses: softprops/action-gh-release@v1
+        id: create_release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.RELEASE_VERSION }}
+          name: ${{ env.RELEASE_NAME }}
+          body_path: .ci/RELEASE-NOTES.md
+          generate_release_notes: true
+          draft: true
+          prerelease: true
+
+  macos12_build_job:
+    needs: release_job
+    runs-on: macos-latest
+    name: Build MacOS 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          mkdir build
+          cmake -B build
+          cmake --build build
+      - name: "Upload Release Asset"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          zip --junk-paths ledstrip-ddpsim-${{ needs.release_job.outputs.release_version }}-MacOS-x86_64.zip  build/ledstrip-ddpsim
+          gh release upload ${{ needs.release_job.outputs.release_version }} ledstrip-ddpsim-${{ needs.release_job.outputs.release_version }}-MacOS-x86_64.zip
+
+  macos14_build_job:
+    needs: release_job
+    runs-on: macos-14
+    name: Build MacOS 14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          mkdir build
+          cmake -B build
+          cmake --build build
+      - name: "Upload Release Asset"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          zip --junk-paths ledstrip-ddpsim-${{ needs.release_job.outputs.release_version }}-MacOS-arm64.zip  build/ledstrip-ddpsim
+          gh release upload ${{ needs.release_job.outputs.release_version }} ledstrip-ddpsim-${{ needs.release_job.outputs.release_version }}-MacOS-arm64.zip
+
+  #macos_ninja_job:
+  #  runs-on: macos-latest
+  #  name: Build MacOS
+  #  steps:
+  #    - uses: actions/checkout@v4
+  #    - name: Setup tools
+  #      run: brew install ninja
+  #    - name: Build
+  #      run: |
+  #        mkdir build
+  #        cmake -GNinja -B build
+  #        cmake --build build
+
+  native_build_job:
+    needs: release_job
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [DRM, Desktop]
+    runs-on: ubuntu-20.04
+    name: Build ${{ matrix.platform }} for amd64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup tools
+        run: |
+          sudo apt-get update -q -y
+          sudo apt-get install -y --no-install-recommends cmake ninja-build
+      - name: Setup deps DRM
+        if: matrix.platform == 'DRM'
+        run: |
+          sudo apt-get install -q -y libgles-dev libgbm-dev libdrm-dev
+      - name: Setup deps Desktop
+        if: matrix.platform == 'Desktop'
+        run: |
+          sudo apt-get install -q -y libgles-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+      - name: Build
+        run: |
+          mkdir build
+          cmake -DPLATFORM=${{ matrix.platform }} -GNinja -B build
+          cmake --build build
+      - name: "Upload Release Asset"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          zip --junk-paths ledstrip-ddpsim-${{ needs.release_job.outputs.release_version }}-${{ matrix.platform }}-amd64.zip  build/ledstrip-ddpsim
+          gh release upload ${{ needs.release_job.outputs.release_version }} ledstrip-ddpsim-${{ needs.release_job.outputs.release_version }}-${{ matrix.platform }}-amd64.zip
+
+  cross_build_job:
+    needs: release_job
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [armhf, arm64]
+        platform: [DRM, Desktop]
+    runs-on: ubuntu-20.04
+    name: Build ${{ matrix.platform }} for ${{ matrix.arch }}
+    steps:
+      - name: Define compiler for armhf
+        if: matrix.arch == 'armhf'
+        run: echo "Compiler=arm-linux-gnueabihf" >> $GITHUB_ENV
+      - name: Define compiler for arm64
+        if: matrix.arch == 'arm64'
+        run: echo "Compiler=aarch64-linux-gnu" >> $GITHUB_ENV
+      - uses: actions/checkout@v4
+      - name: Setup tools
+        run: |
+          sudo apt-get update -q -y
+          sudo apt-get install -y --no-install-recommends cmake ninja-build
+      - name: Setup compiler
+        # crossbuild-essential-armhf on 22.04 is GCC-11.2 (also has 10.5, 9.5)
+        # on 20.04 GCC-9.2 (also has 8), on 18.04 is GCC-7.2
+        # crossbuild-essential-armhf on Bookworm is GCC-12.2 (also has 11.3)
+        # on Bullseye GCC-10.3 (also has 9), on Buster is GCC-8.3
+        # Note the GLIBC version for compatibiliy:
+        # buster has 2.28, bullseye has 2.31, bookworm has 2.36
+        # focal (20.04) has 2.31, jammy (22.04) has 2.35
+        # The crossbuild-essential-${{ matrix.arch }} meta-package has unwanted deps.
+        run: |
+          sudo apt-get install -q -y gcc-${{ env.Compiler }} g++-${{ env.Compiler }}
+      - name: Restrict sources.list
+        run: |
+          sudo sed -i'' -E 's/^(deb|deb-src) mirror\+file/\1 [arch=amd64,i386] mirror\+file/' /etc/apt/sources.list
+      - uses: ryankurte/action-apt@v0.4.0
+        if: matrix.platform == 'DRM'
+        with:
+          arch: ${{ matrix.arch }}
+          packages: "libgles-dev:${{ matrix.arch }} libgbm-dev:${{ matrix.arch }} libdrm-dev:${{ matrix.arch }}"
+      - uses: ryankurte/action-apt@v0.4.0
+        if: matrix.platform == 'Desktop'
+        with:
+          arch: ${{ matrix.arch }}
+          packages: "libgles-dev:${{ matrix.arch }} libxrandr-dev:${{ matrix.arch }} libxinerama-dev:${{ matrix.arch }} libxcursor-dev:${{ matrix.arch }} libxi-dev:${{ matrix.arch }}"
+      - name: Build
+        run: |
+          mkdir build
+          cmake -DCMAKE_C_FLAGS=-I/usr/include/libdrm -DCMAKE_TOOLCHAIN_FILE="$(pwd)/.ci/Toolchain-${{ env.Compiler }}.cmake" -DPLATFORM=${{ matrix.platform }} -GNinja -B build
+          cmake --build build
+      - name: "Upload Release Asset"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          zip --junk-paths ledstrip-ddpsim-${{ needs.release_job.outputs.release_version }}-${{ matrix.platform }}-${{ matrix.arch }}.zip  build/ledstrip-ddpsim
+          gh release upload ${{ needs.release_job.outputs.release_version }} ledstrip-ddpsim-${{ needs.release_job.outputs.release_version }}-${{ matrix.platform }}-${{ matrix.arch }}.zip

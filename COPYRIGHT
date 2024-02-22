@@ -1,0 +1,7 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: ledstrip-ddp-simulator
+Source: https://github.com/zuckschwerdt/ledstrip-ddp-simulator
+
+Files: *
+Copyright: 2024 Christian W. Zuckschwerdt <zany@triq.net>
+License: GPL-2+
