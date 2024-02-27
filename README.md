@@ -83,10 +83,10 @@ Support for e.g. Art-Net and E1.31 could be added, if there is sufficient intere
 
 The windowed builds (Desktop) support the following hotkeys:
 
-- <kbd>Esc<kbd>: Quit
-- <kbd>F<kbd>: Toggles fullscreen
-- <kbd>R<kbd>: Toggles resizable window
-- <kbd>D<kbd>: Toggles undecorated window
-- <kbd>M<kbd>: Toggles maximized window
-- <kbd>T<kbd>: Toggles topmost window
-- <kbd>V<kbd>: Toggles vsync hint
+- <kbd>Esc</kbd>: Quit
+- <kbd>F</kbd>: Toggles fullscreen
+- <kbd>R</kbd>: Toggles resizable window
+- <kbd>D</kbd>: Toggles undecorated window
+- <kbd>M</kbd>: Toggles maximized window
+- <kbd>T</kbd>: Toggles topmost window
+- <kbd>V</kbd>: Toggles vsync hint
